@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.16.3.0] - 2026-07-04
+
+### Added
+- **`/map` — get your bearings in any codebase.** Point it at an unfamiliar repo (an inherited project, an open-source dependency, or your own code months later) and it writes you a guided tour. It finds the entry points and reading order, the **God Nodes** — the handful of files everything else depends on, with a note on what breaks if you change them — and the **Surprising Connections**, the non-obvious couplings and hidden ordering dependencies a newcomer would trip over. Every claim is marked VERIFIED (grep-confirmed, with file and line) or INFERRED (an honest guess), so the map never bluffs.
+- The map is saved to `.gstack/CODEBASE_MAP.md` — a durable, local file you can reread at the start of any session. It's report-only (never touches your code) and needs nothing installed: no language servers, no graph database. Because it's cheap to regenerate, you re-run `/map` when the code has drifted instead of babysitting a graph that goes stale. Run it before `/plan-eng-review`, `/investigate`, or any big refactor to give them a head start.
+
 ## [0.16.2.0] - 2026-04-09
 
 ### Added
