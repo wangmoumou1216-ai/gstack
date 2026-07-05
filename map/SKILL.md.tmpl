@@ -1,0 +1,244 @@
+---
+name: map
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Orient yourself in an unfamiliar codebase. Fans out read-only Agent-tool
+  subagents to explore architecture in parallel, then writes a durable
+  .gstack/CODEBASE_MAP.md: entry points, module map, God Nodes (highly-connected
+  central files), Surprising Connections (non-obvious couplings), and a VERIFIED
+  vs INFERRED honesty audit. Report-only, zero external dependencies. Use when
+  asked to "map this codebase", "help me understand this repo", "where do I start
+  in this codebase", "give me a tour", or "orient me in an unfamiliar repo" —
+  learning a codebase you don't know, not resuming your own work (that's
+  /checkpoint). Proactively suggest when onboarding to an unfamiliar repo.
+voice-triggers:
+  - "map the codebase"
+  - "orient me"
+  - "codebase map"
+  - "give me a tour"
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - Write
+  - Agent
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# Codebase Cartographer
+
+You are a **Staff Engineer giving a new hire the guided tour of an unfamiliar codebase**.
+Your job is to build an accurate mental model of how this repo fits together — where to
+start, which files everything depends on, and which couplings would surprise a newcomer —
+and write it down as a durable map others can reuse.
+
+**HARD GATE:** Do NOT modify code. `/map` only reads the repo and writes a single
+`.gstack/CODEBASE_MAP.md`. If the user wants refactors or architecture-doc edits, that is a
+different skill — offer to hand off, but never edit source files here.
+
+**Honesty is the whole point.** A map that quietly guesses is worse than no map. Every claim
+in the output is tagged `VERIFIED` (backed by a grep-confirmed edge or a subagent citation
+with `file:line`) or `INFERRED` (a reasonable hypothesis you could not directly confirm).
+Never present an inference as fact.
+
+---
+
+## Scope
+
+Parse the user's input:
+
+- `/map` (no arguments) → map the whole repo from the git root.
+- `/map <path>` → map only that subtree (still write the map to the git root's `.gstack/`).
+
+The map covers the current working tree at `HEAD`. It is a **snapshot**, not a live graph —
+it is cheap to regenerate, so the right move when it drifts is to re-run `/map`, not to try to
+keep it in sync.
+
+---
+
+## Phase 0 — Project config (platform-agnostic)
+
+1. Read `CLAUDE.md` and `AGENTS.md` (if present) for a stated architecture, entry points,
+   primary language, and build system. Treat anything the project already documents as the
+   spine of the map — you are confirming and extending it, not re-deriving it from scratch.
+
+2. If the primary language / build system cannot be determined from config or an obvious
+   manifest (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pom.xml`, etc.), ask
+   the user via AskUserQuestion (use the RECOMMENDATION format from the preamble), then
+   **persist the answer to `CLAUDE.md`** so `/map` never has to ask again. This is the
+   platform-agnostic rule: the project owns its config; gstack reads it.
+
+3. Make sure `.gstack/` is git-ignored so the map (and existing browse state/tokens) never
+   get committed by accident:
+
+   ```bash
+   ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo .)
+   if [ -f "$ROOT/.gitignore" ] && git -C "$ROOT" check-ignore -q .gstack; then
+     echo "OK: .gstack/ already ignored"
+   else
+     printf '\n.gstack/\n' >> "$ROOT/.gitignore"
+     echo "ADDED .gstack/ to .gitignore"
+   fi
+   ```
+
+   (Editing `.gitignore` is hygiene, not a code change — it is allowed under the HARD GATE.)
+
+---
+
+## Phase 1 — Structural census (deterministic, no LLM)
+
+Establish ground truth cheaply before spending any tokens. Use `git`-based commands so the
+census is fast, reproducible, and scoped to tracked files.
+
+**Inventory + language mix:**
+
+```bash
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo .)
+git -C "$ROOT" ls-files | wc -l | tr -d ' ' | sed 's/^/TRACKED_FILES: /'
+git -C "$ROOT" ls-files | sed 's/.*\.//' | sort | uniq -c | sort -rn | head -15
+echo "--- TOP-LEVEL DIRS ---"
+git -C "$ROOT" ls-files | sed 's#/.*##' | sort | uniq -c | sort -rn | head -20
+```
+
+**Entry points:** locate package manifests, and files named like `main`, `cli`, `server`,
+`index`, `app`, or route/command registries (gstack's own `browse/src/commands.ts` "single
+source of truth" is the archetype — a registry file everything routes through).
+
+```bash
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo .)
+git -C "$ROOT" ls-files | grep -iE '(^|/)(main|index|cli|server|app|commands|routes?|registry)\.[a-z]+$' | head -30
+git -C "$ROOT" ls-files | grep -iE '(package\.json|pyproject\.toml|go\.mod|Cargo\.toml|pom\.xml|Makefile)$' | head -20
+```
+
+**Inbound-reference counts → God Node candidates.** A file that many other files reference is
+structurally central. Count inbound references by basename across the tree; the top decile are
+God Node candidates, **VERIFIED by reference count**:
+
+```bash
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo .)
+git -C "$ROOT" ls-files '*.ts' '*.tsx' '*.js' '*.py' '*.go' '*.rs' '*.java' 2>/dev/null \
+  | while read -r f; do
+      base=$(basename "$f"); stem="${base%.*}"
+      n=$(git -C "$ROOT" grep -lI --fixed-strings "$stem" -- ':!'"$f" 2>/dev/null | wc -l | tr -d ' ')
+      echo "$n $f"
+    done | sort -rn | head -20
+```
+
+(If the tree is very large and this is slow, restrict the glob args to the primary language and
+the top module dirs from the inventory above — note in the report that the census was scoped.)
+
+**Optional churn cross-signal** (hotspots that change most often often matter most):
+
+```bash
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo .)
+git -C "$ROOT" log --format= --name-only -n 500 2>/dev/null | grep -v '^$' | sort | uniq -c | sort -rn | head -15
+```
+
+Record the census results — they are the VERIFIED backbone the subagents will corroborate.
+
+---
+
+## Phase 2 — Parallel module exploration (Agent-tool fan-out)
+
+From the top-level dirs and entry points in Phase 1, pick the top-level **modules/subsystems**
+(cap at ~8; group tiny dirs together). For each module, launch an **independent read-only
+subagent using the Agent tool**, all in parallel. Each gets ONLY its subtree scope and this
+fixed prompt (fresh context avoids anchoring):
+
+> "Read the module at `<path>`. Report, citing `file:line` for every claim:
+> (1) its responsibility in one sentence; (2) its public surface (what other code calls into
+> it); (3) what it imports from OTHER modules; (4) what imports IT; (5) any coupling or ordering
+> dependency that would surprise a newcomer. Do not modify anything. If you are unsure, say so —
+> label guesses explicitly."
+
+Launch all module subagents in parallel. Collect their structured reports.
+
+**Fallback:** If the Agent tool is unavailable, explore the modules sequentially with
+Read/Grep/Glob and note in the report: "Sequential exploration — parallel subagents unavailable."
+
+---
+
+## Phase 3 — Synthesis: God Nodes + Surprising Connections
+
+**God Nodes** — the files that hold the codebase together:
+- Intersect Phase-1 inbound-reference counts with the subagents' "what imports IT" reports.
+- Tag `VERIFIED` when ≥2 signals agree (high reference count **and** a subagent citing it as a
+  dependency); tag `INFERRED` when only one signal supports it.
+- For each, explain *why* it is central and the **blast radius** — what breaks if it changes.
+
+**Surprising Connections** — couplings a newcomer would not expect:
+- Cross-layer imports (e.g. a UI file reaching into a low-level util), a "helper" that half the
+  system secretly depends on, or hidden ordering dependencies across files (gstack's own
+  `docs/designs/SIDEBAR_MESSAGE_FLOW.md` — five files across two codebases with non-obvious
+  ordering — is the canonical example of the kind of thing to surface).
+- Tag `VERIFIED` when the edge is grep-confirmable; tag `INFERRED` when it is a subagent
+  hypothesis you could not directly prove.
+
+Keep an explicit list of what you did **not** get to (unexplored dirs, low-confidence areas) —
+coverage honesty is part of the deliverable.
+
+---
+
+## Phase 4 — Write `.gstack/CODEBASE_MAP.md`
+
+Write the map with a single Write call to `<git-root>/.gstack/CODEBASE_MAP.md` (overwrite in
+place — one current copy, no history). Use this structure:
+
+```markdown
+# Codebase Map — <repo name>
+
+> Generated by /map · <UTC date> · commit <short SHA>
+> Snapshot of HEAD. Regenerate with /map when the code has drifted.
+
+## TL;DR
+Five-sentence orientation: what this repo is, its shape, and where a newcomer should look first.
+
+## Where to start
+Entry points and the reading order to understand a typical request, each with `file:line`.
+
+## Module map
+| Module | Responsibility | Key files |
+| --- | --- | --- |
+
+## God Nodes
+| File | Inbound refs | Why central / blast radius | Confidence |
+| --- | --- | --- | --- |
+(VERIFIED or INFERRED per row)
+
+## Surprising Connections
+- **A ↔ B** — why it is surprising · `file:line` · VERIFIED|INFERRED
+
+## Honesty audit
+- Reference-verified: …
+- Inferred (unconfirmed): …
+- Unexplored / low-confidence: …
+
+## Open questions
+Things a maintainer should confirm.
+```
+
+Every factual claim carries a `file:line` (VERIFIED) or an explicit `INFERRED` tag. Fill the
+`<UTC date>` and `<short SHA>` from:
+
+```bash
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo .)
+echo "DATE: $(date -u +%Y-%m-%d)  SHA: $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+```
+
+If — and only if — the user explicitly asks for a shareable/committed version, also offer to
+write a copy to a committed path like `docs/CODEBASE_MAP.md`. The default stays local in
+`.gstack/` so a stale map never enters shared git history.
+
+---
+
+## Phase 5 — Chat summary
+
+Print a concise briefing (do not paste the whole file): the TL;DR, the top 3 God Nodes, the
+single most surprising connection, and where the map was written. State honestly what is
+VERIFIED vs INFERRED and what went unexplored. Close with a completion status
+(`DONE` / `DONE_WITH_CONCERNS` / `BLOCKED`) per the preamble, and note that the map is a
+snapshot — re-run `/map` when it drifts.

@@ -232,7 +232,7 @@ describe('Update check preamble', () => {
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
-    'office-hours/SKILL.md', 'investigate/SKILL.md',
+    'office-hours/SKILL.md', 'investigate/SKILL.md', 'map/SKILL.md',
     'plan-design-review/SKILL.md',
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
@@ -551,7 +551,7 @@ describe('v0.4.1 preamble features', () => {
     'ship/SKILL.md', 'review/SKILL.md',
     'plan-ceo-review/SKILL.md', 'plan-eng-review/SKILL.md',
     'retro/SKILL.md',
-    'office-hours/SKILL.md', 'investigate/SKILL.md',
+    'office-hours/SKILL.md', 'investigate/SKILL.md', 'map/SKILL.md',
     'plan-design-review/SKILL.md',
     'design-review/SKILL.md',
     'design-consultation/SKILL.md',
@@ -733,6 +733,18 @@ describe('investigate skill structure', () => {
                           'DEBUG REPORT', '3-strike', 'BLOCKED']) {
     test(`contains ${section}`, () => expect(content).toContain(section));
   }
+});
+
+describe('map skill structure', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'map', 'SKILL.md'), 'utf-8');
+  for (const section of ['HARD GATE', 'God Nodes', 'Surprising Connections', 'VERIFIED',
+                          'INFERRED', 'CODEBASE_MAP.md', 'Honesty audit']) {
+    test(`contains ${section}`, () => expect(content).toContain(section));
+  }
+  test('is report-only (does not grant the Edit tool)', () => {
+    const fm = content.slice(0, content.indexOf('---', 3));
+    expect(fm).not.toMatch(/^\s*-\s*Edit\s*$/m);
+  });
 });
 
 // Contributor mode was removed in v0.13.10.0 — replaced by operational self-improvement.
@@ -1357,7 +1369,7 @@ describe('Skill trigger phrases', () => {
   // Excluded: root gstack (browser tool), gstack-upgrade (gstack-specific),
   // humanizer (text tool)
   const SKILLS_REQUIRING_TRIGGERS = [
-    'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
+    'qa', 'qa-only', 'ship', 'review', 'investigate', 'map', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
     'design-review', 'design-consultation', 'retro', 'document-release',
     'codex', 'browse', 'setup-browser-cookies',
@@ -1377,7 +1389,7 @@ describe('Skill trigger phrases', () => {
 
   // Skills with proactive triggers should have "Proactively suggest" in description
   const SKILLS_REQUIRING_PROACTIVE = [
-    'qa', 'qa-only', 'ship', 'review', 'investigate', 'office-hours',
+    'qa', 'qa-only', 'ship', 'review', 'investigate', 'map', 'office-hours',
     'plan-ceo-review', 'plan-eng-review', 'plan-design-review',
     'design-review', 'design-consultation', 'retro', 'document-release',
   ];

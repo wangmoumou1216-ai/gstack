@@ -11,6 +11,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
 | [`/review`](#review) | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
 | [`/investigate`](#investigate) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
+| [`/map`](#map) | **Codebase Cartographer** | Orient in an unfamiliar codebase. Parallel subagents map the architecture, then write a durable `.gstack/CODEBASE_MAP.md`: entry points, God Nodes, surprising couplings, VERIFIED vs INFERRED audit. Report-only, zero deps, regenerate on demand. |
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
@@ -569,6 +570,16 @@ I want the model imagining the production incident before it happens.
 When something is broken and you don't know why, `/investigate` is your systematic debugger. It follows the Iron Law: **no fixes without root cause investigation first.**
 
 Instead of guessing and patching, it traces data flow, matches against known bug patterns, and tests hypotheses one at a time. If three fix attempts fail, it stops and questions the architecture instead of thrashing. This prevents the "let me try one more thing" spiral that wastes hours.
+
+---
+
+## `/map`
+
+When you land in an unfamiliar codebase — an inherited project, an open-source repo, or your own code months later — `/map` is your guided tour. It builds an accurate picture of how the repo fits together instead of making you grep around blindly.
+
+It runs a cheap structural census first (`git ls-files`, inbound-reference counts, entry points), then fans out read-only subagents in parallel — one per module — to report what each does, what it imports, and what imports it. From that it synthesizes the two things a newcomer most needs: **God Nodes** (the highly-connected files everything depends on, with their blast radius) and **Surprising Connections** (non-obvious couplings and hidden ordering dependencies). Every claim is tagged `VERIFIED` (grep-confirmed, with `file:line`) or `INFERRED` (an honest guess), so the map never bluffs.
+
+The result is written to `.gstack/CODEBASE_MAP.md` — a durable, local, git-ignored artifact you can reread at the start of any session. It's report-only (it never touches your code) and has zero external dependencies: no tree-sitter, no graph database, nothing to install. Because it's cheap to regenerate, the map is a snapshot you re-run when the code drifts rather than a live graph you have to keep in sync — which sidesteps the staleness problem that plagues persistent code-graph tools. Run it before `/plan-eng-review`, `/investigate`, or any large refactor to give them a head start.
 
 ---
 
